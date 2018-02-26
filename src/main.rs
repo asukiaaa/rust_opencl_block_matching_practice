@@ -1,5 +1,7 @@
 extern crate image;
+extern crate ocl;
 use image::{GenericImage, RgbImage};
+use ocl::{Buffer, MemFlags, ProQue, SpatialDims};
 
 fn get_gray_pixels(file_name: &str) -> (Vec<u8>, usize, usize) {
     let img = image::open(file_name).unwrap().grayscale();
@@ -114,4 +116,74 @@ fn main() {
     }
     let result_image = RgbImage::from_raw(width as u32, height as u32, pixels).unwrap();
     let _saved = result_image.save("result.png");
+
+    let src = r#"
+        __kernel void get_block_diff(
+                __global unsigned char* left_pixels,
+                __global unsigned char* right_pixels,
+                __global unsigned char* result_pixels,
+                size_t w,
+                size_t h,
+                size_t block_w,
+                size_t block_h,
+                size_t max_diff) {
+            int block_x = get_global_id(0);
+            int block_y = get_global_id(1);
+            for (size_t x = block_x; x < (block_x + 1) * block_w;) {
+                for (size_t y = block_y * block_h; y < (block_y + 1) * block_h;) {
+                    int index = y * w + x;
+                    result_pixels[index] = left_pixels[index];
+                    y++;
+                    if (y % h == 0)
+                        break;
+                }
+                x++;
+                if (x % w == 0)
+                    break;
+            }
+        }
+    "#;
+
+    let global_work_size = SpatialDims::new(Some(width / block_w),Some(height / block_h),Some(1)).unwrap();
+    let pro_que = ProQue::builder()
+        .src(src)
+        .dims(global_work_size)
+        .build().expect("Build ProQue");
+
+    let left_pixels_buffer = Buffer::builder()
+        .queue(pro_que.queue().clone())
+        .flags(MemFlags::new().read_write().copy_host_ptr())
+        .len(width * height)
+        .host_data(&left_pixels)
+        .build().unwrap();
+
+    let right_pixels_buffer = Buffer::builder()
+        .queue(pro_que.queue().clone())
+        .flags(MemFlags::new().read_write().copy_host_ptr())
+        .len(width * height)
+        .host_data(&right_pixels)
+        .build().unwrap();
+
+    let result_pixels_buffer: Buffer<u8> = Buffer::builder()
+        .queue(pro_que.queue().clone())
+        .flags(MemFlags::new().read_write())
+        .len(width * height)
+        .build().unwrap();
+
+    let kernel = pro_que.create_kernel("get_block_diff").unwrap()
+        .arg_buf(&left_pixels_buffer)
+        .arg_buf(&right_pixels_buffer)
+        .arg_buf(&result_pixels_buffer)
+        .arg_scl(width)
+        .arg_scl(height)
+        .arg_scl(block_w)
+        .arg_scl(block_h)
+        .arg_scl(max_diff);
+
+    unsafe { kernel.enq().unwrap(); }
+
+    let mut cl_result_pixels = vec![0; result_pixels_buffer.len()];
+    result_pixels_buffer.read(&mut cl_result_pixels).enq().unwrap();
+
+    print!("{:?}", cl_result_pixels)
 }
