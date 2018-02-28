@@ -50,15 +50,15 @@ fn get_diff_point(left_pixels: &Vec<u8>, right_pixels: &Vec<u8>, w: usize, h: us
     get_point_from_blocks(&left_block, &right_block, block_w * block_h)
 }
 
-fn block_match(left_pixels: &Vec<u8>, right_pixels: &Vec<u8>, w: usize, h: usize, block_w: usize, block_h: usize, max_diff: usize) -> Vec<f32> {
-    let mut diff_vec = vec![max_diff as f32; w * h];
+fn block_match(left_pixels: &Vec<u8>, right_pixels: &Vec<u8>, w: usize, h: usize, block_w: usize, block_h: usize, diff_len: usize) -> Vec<f32> {
+    let mut diff_vec = vec![diff_len as f32; w * h];
     for i in 0..h {
         if i % block_h != 0 { continue } // For step_by
         for j in 0..w {
             if j % block_w != 0 { continue } // For step_by
             let mut min_diff_point = std::f32::MAX;
-            let mut min_diff_index = max_diff;
-            for k in 0..max_diff {
+            let mut min_diff_index = diff_len;
+            for k in 0..diff_len {
                 let diff_point = get_diff_point(&left_pixels, &right_pixels, w, h, block_w, block_h, j+k, i, j, i);
                 if diff_point < min_diff_point {
                     min_diff_point = diff_point;
@@ -71,9 +71,9 @@ fn block_match(left_pixels: &Vec<u8>, right_pixels: &Vec<u8>, w: usize, h: usize
     diff_vec
 }
 
-fn normalize_result_pixels(pixels: &Vec<f32>, max_diff: usize) -> Vec<u8> {
-    // result_mat * std::u8::MAX as f32 / (max_diff + 2) as f32;
-    pixels.into_iter().map(|p| (p * std::u8::MAX as f32 / (max_diff + 2) as f32) as u8).collect()
+fn normalize_result_pixels(pixels: &Vec<f32>, diff_len: usize) -> Vec<u8> {
+    // result_mat * std::u8::MAX as f32 / (diff_len + 2) as f32;
+    pixels.into_iter().map(|p| (p * std::u8::MAX as f32 / (diff_len + 2) as f32) as u8).collect()
 }
 
 fn hsv_to_rgb(h: u8, s: u8, v: u8) -> Vec<u8> {
@@ -107,44 +107,76 @@ fn main() {
     let (right_pixels, _, _) = get_gray_pixels(&right_image_file_name);
     let block_w = 11;
     let block_h = 11;
-    let max_diff = width / 4;
-    let result_pixels = block_match(&left_pixels, &right_pixels, width, height, block_w, block_h, max_diff);
-    let result_pixels = normalize_result_pixels(&result_pixels, max_diff);
+    let diff_len = width / 4;
+
+    /*
+    let result_pixels = block_match(&left_pixels, &right_pixels, width, height, block_w, block_h, diff_len);
+    let result_pixels = normalize_result_pixels(&result_pixels, diff_len);
     let mut pixels = vec![];
     for p in result_pixels {
         pixels.extend(hsv_to_rgb(p as u8, 255, 255));
     }
     let result_image = RgbImage::from_raw(width as u32, height as u32, pixels).unwrap();
     let _saved = result_image.save("result.png");
+    */
 
     let src = r#"
-        __kernel void get_block_diff(
-                __global unsigned char* left_pixels,
-                __global unsigned char* right_pixels,
-                __global unsigned char* result_pixels,
-                size_t w,
-                size_t h,
-                size_t block_w,
-                size_t block_h,
-                size_t max_diff) {
-            int block_x = get_global_id(0);
-            int block_y = get_global_id(1);
-            for (size_t x = block_x; x < (block_x + 1) * block_w;) {
-                for (size_t y = block_y * block_h; y < (block_y + 1) * block_h;) {
-                    int index = y * w + x;
-                    result_pixels[index] = left_pixels[index];
-                    y++;
-                    if (y % h == 0)
-                        break;
+        __kernel void get_diffs(
+                     __global unsigned char* left_pixels,
+                     __global unsigned char* right_pixels,
+                     __global unsigned char* diffs,
+                     size_t w,
+                     size_t h,
+                     size_t diff_len) {
+            size_t x = get_global_id(0);
+            size_t y = get_global_id(1);
+            size_t diff_index = get_global_id(2);
+            size_t target_index = y * w + x;
+            unsigned char left = left_pixels[target_index + diff_index];
+            unsigned char right = right_pixels[target_index];
+            unsigned char value;
+            if (left > right)
+                value = left - right;
+            else
+                value = right - left;
+            diffs[target_index * diff_len + diff_index] = value;
+        }
+
+        __kernel void get_result_diffs(
+                     __global unsigned char* diffs,
+                     __global unsigned char* result_diffs,
+                     size_t w,
+                     size_t h,
+                     size_t block_w,
+                     size_t block_h,
+                     size_t result_w,
+                     size_t result_h,
+                     size_t diff_len) {
+            size_t result_x = get_global_id(0);
+            size_t result_y = get_global_id(1);
+            size_t z = get_global_id(2);
+            if (result_x > result_w || result_y > result_h || z != 0)
+                return;
+            size_t x, y, i;
+            size_t min_diff_index;
+            unsigned int min_diff_point;
+            for (i = 0; i < diff_len; i++) {
+                unsigned int diff_point = 0;
+                for (x = result_x * block_w; x < (result_x + 1) * block_w; x++) {
+                    for (y = result_y * block_h; y < (result_y + 1) * block_h; y++) {
+                        diff_point += (unsigned int) diffs[(y * w + x) * diff_len + i];
+                    }
                 }
-                x++;
-                if (x % w == 0)
-                    break;
+                if (i == 0 || min_diff_point > diff_point) {
+                    min_diff_index = i;
+                    min_diff_point = diff_point;
+                }
             }
+            result_diffs[result_y * result_w + result_x] = min_diff_index;
         }
     "#;
 
-    let global_work_size = SpatialDims::new(Some(width / block_w),Some(height / block_h),Some(1)).unwrap();
+    let global_work_size = SpatialDims::new(Some(width),Some(height),Some(diff_len)).unwrap();
     let pro_que = ProQue::builder()
         .src(src)
         .dims(global_work_size)
@@ -164,26 +196,60 @@ fn main() {
         .host_data(&right_pixels)
         .build().unwrap();
 
+    let diffs_buffer: Buffer<u8> = Buffer::builder()
+        .queue(pro_que.queue().clone())
+        .flags(MemFlags::new().read_write())
+        .len(width * height * diff_len)
+        .build().unwrap();
+
+    let result_w = width / block_w;
+    let result_h = height/ block_h;
+
+    let result_diffs_buffer: Buffer<u8> = Buffer::builder()
+        .queue(pro_que.queue().clone())
+        .flags(MemFlags::new().read_write())
+        .len(result_w * result_h)
+        .build().unwrap();
+
     let result_pixels_buffer: Buffer<u8> = Buffer::builder()
         .queue(pro_que.queue().clone())
         .flags(MemFlags::new().read_write())
-        .len(width * height)
+        .len(result_w * result_h)
         .build().unwrap();
 
-    let kernel = pro_que.create_kernel("get_block_diff").unwrap()
+    let get_diffs_kernel = pro_que.create_kernel("get_diffs").unwrap()
         .arg_buf(&left_pixels_buffer)
         .arg_buf(&right_pixels_buffer)
-        .arg_buf(&result_pixels_buffer)
+        .arg_buf(&diffs_buffer)
+        .arg_scl(width)
+        .arg_scl(height)
+        .arg_scl(diff_len);
+
+    unsafe { get_diffs_kernel.enq().unwrap(); }
+
+    let get_result_diffs_kernel = pro_que.create_kernel("get_result_diffs").unwrap()
+        .arg_buf(&diffs_buffer)
+        .arg_buf(&result_diffs_buffer)
         .arg_scl(width)
         .arg_scl(height)
         .arg_scl(block_w)
         .arg_scl(block_h)
-        .arg_scl(max_diff);
+        .arg_scl(result_w)
+        .arg_scl(result_h)
+        .arg_scl(diff_len);
 
-    unsafe { kernel.enq().unwrap(); }
+    unsafe { get_result_diffs_kernel.enq().unwrap(); }
 
-    let mut cl_result_pixels = vec![0; result_pixels_buffer.len()];
-    result_pixels_buffer.read(&mut cl_result_pixels).enq().unwrap();
+    let mut result_diffs = vec![0; result_diffs_buffer.len()];
+    result_diffs_buffer.read(&mut result_diffs).enq().unwrap();
 
-    print!("{:?}", cl_result_pixels)
+    //println!("{:?}", result_diffs);
+    let mut pixels = vec![];
+    let diff_len_f32 = diff_len as f32;
+    for p in result_diffs {
+        let h = ((diff_len_f32 - p as f32) / diff_len_f32) * 200.0;
+        pixels.extend(hsv_to_rgb(h as u8, 255, 255));
+    }
+    let result_image = RgbImage::from_raw(result_w as u32, result_h as u32, pixels).unwrap();
+    let _saved = result_image.save("result.png");
 }
