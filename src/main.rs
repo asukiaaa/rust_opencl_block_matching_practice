@@ -1,7 +1,9 @@
 extern crate image;
 extern crate ocl;
+extern crate time;
 use image::{GenericImage, RgbImage};
 use ocl::{Buffer, MemFlags, ProQue, SpatialDims};
+use time::PreciseTime;
 
 fn get_gray_pixels(file_name: &str) -> (Vec<u8>, usize, usize) {
     let img = image::open(file_name).unwrap().grayscale();
@@ -31,6 +33,7 @@ fn hsv_to_rgb(h: u8, s: u8, v: u8) -> Vec<u8> {
 }
 
 fn main() {
+    let start_time = PreciseTime::now();
     // let left_image_file_name = "data/aloeL.jpg";
     // let right_image_file_name = "data/aloeR.jpg";
     let left_image_file_name = "data/left.png";
@@ -41,6 +44,7 @@ fn main() {
     let block_h = 11;
     let diff_len = width / 4;
 
+    let loaded_image_time = PreciseTime::now();
 
     let src = r#"
         __kernel void get_diffs(
@@ -104,6 +108,8 @@ fn main() {
         .dims(global_work_size)
         .build().expect("Build ProQue");
 
+    let put_kernel_time = PreciseTime::now();
+
     let left_pixels_buffer = Buffer::builder()
         .queue(pro_que.queue().clone())
         .flags(MemFlags::new().read_write().copy_host_ptr())
@@ -133,6 +139,7 @@ fn main() {
         .len(result_w * result_h)
         .build().unwrap();
 
+    let create_buffer_time = PreciseTime::now();
 
     let get_diffs_kernel = pro_que.create_kernel("get_diffs").unwrap()
         .arg_buf(&left_pixels_buffer)
@@ -160,6 +167,8 @@ fn main() {
     let mut result_diffs = vec![0; result_diffs_buffer.len()];
     result_diffs_buffer.read(&mut result_diffs).enq().unwrap();
 
+    let got_result_time = PreciseTime::now();
+
     //println!("{:?}", result_diffs);
     let mut pixels = vec![];
     let diff_len_f32 = diff_len as f32;
@@ -169,4 +178,13 @@ fn main() {
     }
     let result_image = RgbImage::from_raw(result_w as u32, result_h as u32, pixels).unwrap();
     let _saved = result_image.save("result.png");
+
+    let created_result_image_time = PreciseTime::now();
+
+    println!("Load image {} sec", start_time.to(loaded_image_time));
+    println!("Put kernel {} sec", loaded_image_time.to(put_kernel_time));
+    println!("Create buffer {} sec", put_kernel_time.to(create_buffer_time));
+    println!("Get result {} sec", create_buffer_time.to(got_result_time));
+    println!("Create resutl image {} sec", got_result_time.to(created_result_image_time));
+    println!("Total {} sec", start_time.to(created_result_image_time));
 }
