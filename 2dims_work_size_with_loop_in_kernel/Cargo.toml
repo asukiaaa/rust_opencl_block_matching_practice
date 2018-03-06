@@ -1,0 +1,9 @@
+[package]
+name = "2dims_work_size_with_loop_in_kernel"
+version = "0.1.0"
+authors = ["asuki <asukiaaa@gmail.com>"]
+
+[dependencies]
+image = "*"
+ocl = "0.17"
+time = "0.1"
