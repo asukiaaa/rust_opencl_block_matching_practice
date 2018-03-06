@@ -1,5 +1,5 @@
 [package]
-name = "rust_opencl_block_matching_practice"
+name = "3dims_work_size"
 version = "0.1.0"
 authors = ["asuki <asukiaaa@gmail.com>"]
 
