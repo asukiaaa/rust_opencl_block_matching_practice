@@ -34,10 +34,10 @@ fn hsv_to_rgb(h: u8, s: u8, v: u8) -> Vec<u8> {
 
 fn main() {
     let start_time = PreciseTime::now();
-    let left_image_file_name = "../data/aloeL.jpg";
-    let right_image_file_name = "../data/aloeR.jpg";
-    // let left_image_file_name = "../data/left.png";
-    // let right_image_file_name = "../data/right.png";
+    // let left_image_file_name = "../data/aloeL.jpg";
+    // let right_image_file_name = "../data/aloeR.jpg";
+    let left_image_file_name = "../data/left.png";
+    let right_image_file_name = "../data/right.png";
     let (left_pixels, width, height) = get_gray_pixels(&left_image_file_name);
     let (right_pixels, _, _) = get_gray_pixels(&right_image_file_name);
     let block_w = 11;
