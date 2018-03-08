@@ -19,6 +19,9 @@ cargo run
 cd ../
 ```
 
+# License
+MIT
+
 # References
 - [Rustでステレオ画像のブロックマッチングをしてみた](http://asukiaaa.blogspot.com/2018/03/rust.html)
 - [rust_stereo_block_matching_practice](https://github.com/asukiaaa/rust_stereo_block_matching_practice)
