@@ -20,5 +20,6 @@ cd ../
 ```
 
 # References
+- [Rustでステレオ画像のブロックマッチングをしてみた](http://asukiaaa.blogspot.com/2018/03/rust.html)
 - [rust_stereo_block_matching_practice](https://github.com/asukiaaa/rust_stereo_block_matching_practice)
 - [Crate ocl](https://docs.rs/ocl/0.17.0/ocl/)
