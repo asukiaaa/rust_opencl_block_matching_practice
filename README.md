@@ -1,5 +1,13 @@
 # rust_opencl_block_matching_practice
 
+# Environment
+
+Name | Version
+---- | -------
+Rust | 1.28.0
+OS   | Ubuntu 17.10
+CPU  | Intel Core i7-4600U
+
 # Usage
 ```
 cd 3dims_work_size

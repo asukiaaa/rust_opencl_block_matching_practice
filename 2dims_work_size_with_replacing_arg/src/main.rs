@@ -113,14 +113,14 @@ fn main() {
         .queue(pro_que.queue().clone())
         .flags(MemFlags::new().read_write().copy_host_ptr())
         .len(width * height)
-        .host_data(&left_pixels)
+        .copy_host_slice(&left_pixels)
         .build().unwrap();
 
     let right_pixels_buffer = Buffer::builder()
         .queue(pro_que.queue().clone())
         .flags(MemFlags::new().read_write().copy_host_ptr())
         .len(width * height)
-        .host_data(&right_pixels)
+        .copy_host_slice(&right_pixels)
         .build().unwrap();
 
     let diffs_buffer: Buffer<u8> = Buffer::builder()
@@ -140,30 +140,35 @@ fn main() {
 
     let create_buffer_time = PreciseTime::now();
 
-    let mut get_diffs_kernel = pro_que.create_kernel("get_diffs").unwrap()
-        .arg_buf(&left_pixels_buffer)
-        .arg_buf(&right_pixels_buffer)
-        .arg_buf(&diffs_buffer)
-        .arg_scl(width)
-        .arg_scl(height)
-        .arg_scl(diff_len)
-        .arg_scl_named("diff_index", Some(0 as usize));
+    let get_diffs_kernel = pro_que.kernel_builder("get_diffs")
+        .arg(&left_pixels_buffer)
+        .arg(&right_pixels_buffer)
+        .arg(&diffs_buffer)
+        .arg(width)
+        .arg(height)
+        .arg(diff_len)
+        .arg_named("diff_index", 0 as usize)
+        .build().unwrap();
 
+    let diff_index_idx = get_diffs_kernel.named_arg_idx("diff_index").unwrap();
     for i in 0..diff_len {
-        let kernel = get_diffs_kernel.set_arg_scl_named("diff_index", i as usize).unwrap();
-        unsafe { kernel.enq().unwrap(); }
+        unsafe {
+            get_diffs_kernel.set_arg_unchecked(diff_index_idx, ocl::enums::ArgVal::scalar(&i)).unwrap();
+            get_diffs_kernel.enq().unwrap();
+        }
     }
 
-    let get_result_diffs_kernel = pro_que.create_kernel("get_result_diffs").unwrap()
-        .arg_buf(&diffs_buffer)
-        .arg_buf(&result_diffs_buffer)
-        .arg_scl(width)
-        .arg_scl(height)
-        .arg_scl(block_w)
-        .arg_scl(block_h)
-        .arg_scl(result_w)
-        .arg_scl(result_h)
-        .arg_scl(diff_len);
+    let get_result_diffs_kernel = pro_que.kernel_builder("get_result_diffs")
+        .arg(&diffs_buffer)
+        .arg(&result_diffs_buffer)
+        .arg(width)
+        .arg(height)
+        .arg(block_w)
+        .arg(block_h)
+        .arg(result_w)
+        .arg(result_h)
+        .arg(diff_len)
+        .build().unwrap();
 
     unsafe { get_result_diffs_kernel.enq().unwrap(); }
 

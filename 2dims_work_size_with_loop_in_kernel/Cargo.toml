@@ -5,5 +5,5 @@ authors = ["asuki <asukiaaa@gmail.com>"]
 
 [dependencies]
 image = "*"
-ocl = "0.17"
+ocl = "0.19"
 time = "0.1"
